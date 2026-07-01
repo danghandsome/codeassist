@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Anthropic.Models.Messages;
@@ -31,6 +32,8 @@ internal sealed class WorkspaceTools
                 "read_file" => ReadFile(GetString(input, "path")),
                 "write_file" => WriteFile(GetString(input, "path"), GetString(input, "content")),
                 "search" => Search(GetString(input, "pattern"), GetString(input, "path", ".")),
+                "run_command" => RunCommand(GetString(input, "command")),
+                "git" => Git(GetString(input, "args")),
                 _ => $"Error: unknown tool '{name}'.",
             };
         }
@@ -126,6 +129,81 @@ internal sealed class WorkspaceTools
         return matches == 0 ? $"No matches for '{pattern}'." : hits.ToString();
     }
 
+    // Only build/test runners are allowed — never arbitrary shell commands.
+    private static readonly string[] AllowedCommands = { "dotnet", "npm", "node" };
+
+    private string RunCommand(string command)
+    {
+        command = command.Trim();
+        string exe = command.Split(' ', 2)[0];
+        if (!AllowedCommands.Contains(exe))
+        {
+            return $"Error: command '{exe}' is not allowed. Allowed: {string.Join(", ", AllowedCommands)}.";
+        }
+
+        string args = command.Length > exe.Length ? command[exe.Length..].Trim() : string.Empty;
+        return RunProcess(exe, args);
+    }
+
+    // Read + commit git subcommands only — no push/reset/clean.
+    private static readonly string[] AllowedGit = { "status", "diff", "log", "show", "branch", "add", "commit" };
+
+    private string Git(string args)
+    {
+        args = args.Trim();
+        string sub = args.Split(' ', 2)[0];
+        if (!AllowedGit.Contains(sub))
+        {
+            return $"Error: git '{sub}' is not allowed. Allowed: {string.Join(", ", AllowedGit)}.";
+        }
+
+        return RunProcess("git", args);
+    }
+
+    private string RunProcess(string fileName, string arguments)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                WorkingDirectory = _root,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            using Process? p = Process.Start(psi);
+            if (p is null)
+            {
+                return "Error: failed to start process.";
+            }
+
+            string stdout = p.StandardOutput.ReadToEnd();
+            string stderr = p.StandardError.ReadToEnd();
+            if (!p.WaitForExit(60_000))
+            {
+                try { p.Kill(true); } catch { /* ignore */ }
+                return "Error: command timed out (60s).";
+            }
+
+            string output = (stdout + (stderr.Length > 0 ? "\n" + stderr : string.Empty)).Trim();
+            const int max = 12_000;
+            if (output.Length > max)
+            {
+                output = output[..max] + "\n... [truncated]";
+            }
+
+            return output.Length == 0 ? $"(exit {p.ExitCode}, no output)" : $"[exit {p.ExitCode}]\n{output}";
+        }
+        catch (Exception ex)
+        {
+            return $"Error: {ex.Message}";
+        }
+    }
+
     #endregion
 
     #region Helpers
@@ -203,6 +281,20 @@ internal sealed class WorkspaceTools
                 ["path"] = new { type = "string", description = "Directory to search under. Defaults to '.'." },
             },
             ["pattern"]),
+
+        Def("run_command", "Run an allowed build/test command in the workspace (dotnet, npm, node). Use it to compile or run tests and read the result.",
+            new Dictionary<string, object>
+            {
+                ["command"] = new { type = "string", description = "Full command, e.g. 'dotnet build' or 'dotnet test'." },
+            },
+            ["command"]),
+
+        Def("git", "Run a read or commit git command in the workspace (status, diff, log, show, branch, add, commit).",
+            new Dictionary<string, object>
+            {
+                ["args"] = new { type = "string", description = "Git arguments, e.g. 'diff', 'log --oneline -5', or 'commit -m \"message\"'." },
+            },
+            ["args"]),
     ];
 
     #endregion

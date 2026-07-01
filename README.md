@@ -11,13 +11,21 @@ in ~250 lines of readable C#.
 
 ## What it shows
 
-- **Tool calling / function calling** — four client-side tools (`list_files`,
-  `read_file`, `write_file`, `search`) defined with JSON Schema and dispatched by name.
+- **Tool calling / function calling** — six client-side tools (`list_files`,
+  `read_file`, `write_file`, `search`, `run_command`, `git`) defined with JSON
+  Schema and dispatched by name.
 - **The agentic loop** — call the model → execute requested tools → feed results
   back → repeat until `stop_reason != "tool_use"`.
-- **Safety** — every file operation is confined to the workspace root; paths that
-  escape it are rejected (`..`, absolute paths, symlinks).
-- **Clean architecture** — API/loop in `Program.cs`, tools isolated in `Tools.cs`.
+- **Runs & verifies** — `run_command` (allowlisted: `dotnet`/`npm`/`node`) lets the
+  agent build and run tests, then read the output; `git` (status/diff/log/commit)
+  lets it inspect and commit changes.
+- **Conversation memory** — a lightweight transcript persists to
+  `.codeassist-history.json`, so the assistant remembers previous sessions
+  (`/reset` clears it).
+- **Safety** — file ops are confined to the workspace root (`..`/absolute/symlink
+  escapes rejected); `run_command`/`git` are allowlisted — no arbitrary shell.
+- **Clean architecture** — API/loop in `Program.cs`, tools in `Tools.cs`, memory in
+  `Memory.cs`.
 
 ## Architecture
 
