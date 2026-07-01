@@ -32,6 +32,9 @@ You type a question
 
 ## Run it
 
+> **Getting a key:** create one at [console.anthropic.com](https://console.anthropic.com)
+> → *API Keys*. It's pay-as-you-go; a quick test costs a few cents.
+
 ```bash
 # 1. Set your API key
 export ANTHROPIC_API_KEY=sk-ant-...          # PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-..."
