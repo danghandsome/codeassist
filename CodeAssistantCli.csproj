@@ -15,4 +15,10 @@
     <PackageReference Include="Anthropic" Version="*" />
   </ItemGroup>
 
+  <!-- The test project lives under Tests/ — don't compile it into the app. -->
+  <ItemGroup>
+    <Compile Remove="Tests\**\*.cs" />
+    <InternalsVisibleTo Include="CodeAssistantCli.Tests" />
+  </ItemGroup>
+
 </Project>

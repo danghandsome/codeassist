@@ -1,5 +1,7 @@
 # codeassist — a Claude-powered coding assistant CLI
 
+![CI](https://github.com/danghandsome/codeassist/actions/workflows/ci.yml/badge.svg)
+
 A small terminal coding assistant written in **C# / .NET 8**, built on the official
 [Anthropic SDK](https://www.nuget.org/packages/Anthropic). It runs an **agentic
 tool-use loop**: the model reads, searches, and writes files in a workspace until
