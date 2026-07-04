@@ -103,9 +103,9 @@ internal sealed class WorkspaceTools
 
         var hits = new StringBuilder();
         int matches = 0;
-        foreach (string file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+        foreach (string file in EnumerateSearchableFiles(dir))
         {
-            if (IsProbablyBinary(file))
+            if (ShouldSkipForSearch(file))
             {
                 continue;
             }
@@ -116,10 +116,20 @@ internal sealed class WorkspaceTools
                 lineNo++;
                 if (line.Contains(pattern, StringComparison.OrdinalIgnoreCase))
                 {
-                    hits.AppendLine($"{Path.GetRelativePath(_root, file).Replace('\\', '/')}:{lineNo}: {line.Trim()}");
-                    if (++matches >= 100)
+                    // A single minified line can be an entire file — cap its length.
+                    string snippet = line.Trim();
+                    if (snippet.Length > MaxLineLength)
                     {
-                        hits.AppendLine("... [stopped at 100 matches]");
+                        snippet = snippet[..MaxLineLength] + " …";
+                    }
+
+                    hits.AppendLine($"{Path.GetRelativePath(_root, file).Replace('\\', '/')}:{lineNo}: {snippet}");
+
+                    // Bound by both match count and total size so a big vendor tree
+                    // can never overflow the model's context window.
+                    if (++matches >= MaxMatches || hits.Length >= MaxResultChars)
+                    {
+                        hits.AppendLine("... [truncated]");
                         return hits.ToString();
                     }
                 }
@@ -221,11 +231,84 @@ internal sealed class WorkspaceTools
         return full;
     }
 
+    // Directories that never hold useful source — pruned by search so vendored
+    // dependencies and build output can't overflow the context window.
+    private static readonly HashSet<string> IgnoredDirs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".git", ".vs", ".idea", "bin", "obj", "packages",
+        "node_modules", "dist", "build", ".next", "vendor",
+    };
+
+    private const int MaxMatches = 100;
+    private const int MaxResultChars = 8_000;
+    private const int MaxLineLength = 240;
+    private const long MaxSearchFileBytes = 1_000_000;
+
+    /// <summary>Walk files under <paramref name="root"/>, pruning ignored directories.</summary>
+    private static IEnumerable<string> EnumerateSearchableFiles(string root)
+    {
+        var stack = new Stack<string>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            string dir = stack.Pop();
+
+            string[] subdirs;
+            try { subdirs = Directory.GetDirectories(dir); }
+            catch { continue; }
+
+            foreach (string sub in subdirs)
+            {
+                if (!IgnoredDirs.Contains(Path.GetFileName(sub)))
+                {
+                    stack.Push(sub);
+                }
+            }
+
+            string[] files;
+            try { files = Directory.GetFiles(dir); }
+            catch { continue; }
+
+            foreach (string file in files)
+            {
+                yield return file;
+            }
+        }
+    }
+
+    /// <summary>Skip binaries, minified bundles, source maps and oversized files.</summary>
+    private static bool ShouldSkipForSearch(string file)
+    {
+        if (IsProbablyBinary(file))
+        {
+            return true;
+        }
+
+        string name = Path.GetFileName(file).ToLowerInvariant();
+        if (name.Contains(".min.") || name.EndsWith(".map"))
+        {
+            return true;
+        }
+
+        try
+        {
+            if (new FileInfo(file).Length > MaxSearchFileBytes)
+            {
+                return true;
+            }
+        }
+        catch { /* ignore unreadable file */ }
+
+        return false;
+    }
+
     private static bool IsProbablyBinary(string file)
     {
         string ext = Path.GetExtension(file).ToLowerInvariant();
         return ext is ".dll" or ".exe" or ".pdb" or ".png" or ".jpg" or ".jpeg"
-            or ".gif" or ".ico" or ".zip" or ".gz" or ".pdf" or ".docx" or ".xlsx";
+            or ".gif" or ".ico" or ".zip" or ".gz" or ".pdf" or ".docx" or ".xlsx"
+            or ".mp4" or ".webm" or ".mov" or ".mp3" or ".wav"
+            or ".woff" or ".woff2" or ".ttf" or ".eot" or ".svg" or ".psd" or ".bmp";
     }
 
     private static string GetString(IReadOnlyDictionary<string, JsonElement> input, string key, string? fallback = null)

@@ -71,4 +71,23 @@ public class WorkspaceToolsTests : IDisposable
         string result = _tools.Execute("do_something_evil", Input());
         Assert.StartsWith("Error", result);
     }
+
+    [Fact]
+    public void Search_FindsMatchInNormalSourceFile()
+    {
+        _tools.Execute("write_file", Input(("path", "src/app.cs"), ("content", "var googleId = 1;")));
+        string result = _tools.Execute("search", Input(("pattern", "googleId")));
+        Assert.Contains("src/app.cs", result);
+    }
+
+    [Fact]
+    public void Search_SkipsIgnoredDirsAndMinifiedFiles()
+    {
+        // The pattern lives ONLY inside an ignored dependency dir and a minified
+        // bundle — both must be skipped so vendored files can't flood the context.
+        _tools.Execute("write_file", Input(("path", "packages/lib.cs"), ("content", "SECRETTOKEN here")));
+        _tools.Execute("write_file", Input(("path", "assets/jquery.min.js"), ("content", "var SECRETTOKEN=1;")));
+        string result = _tools.Execute("search", Input(("pattern", "SECRETTOKEN")));
+        Assert.Equal("No matches for 'SECRETTOKEN'.", result);
+    }
 }
